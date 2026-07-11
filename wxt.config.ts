@@ -11,6 +11,11 @@ if (!existsSync(firefoxProfilePath)) {
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: {
+    sidebar_action: {
+      default_panel: "popup.html",
+      default_title: "Cheese Mouse",
+      default_icon: "icon/48.png"
+    },
     browser_specific_settings: {
       gecko: {
         id: 'cheese-mouse@e88e89.dev',
