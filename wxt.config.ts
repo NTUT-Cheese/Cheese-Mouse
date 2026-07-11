@@ -12,9 +12,17 @@ export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: {
     sidebar_action: {
-      default_panel: "popup.html",
+      default_panel: "sidebar.html",
       default_title: "Cheese Mouse",
       default_icon: "icon/48.png"
+    },
+    browser_action: {
+      default_title: "Cheese Mouse",
+      default_icon: {
+        "16": "icon/16.png",
+        "32": "icon/32.png",
+        "48": "icon/48.png",
+      },
     },
     browser_specific_settings: {
       gecko: {
