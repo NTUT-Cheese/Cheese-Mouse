@@ -3,6 +3,8 @@
 // DOM 特徵萃取與訊息傳遞介面
 // ============================================================
 
+import type { SemanticData, BehavioralData } from '@/analyzers/types';
+
 /**
  * 單一 DOM 元素的結構化特徵
  * 由特徵萃取器從原始 DOM 壓縮而來
@@ -65,6 +67,10 @@ export interface PageFeatureReport {
   features: ElementFeature[];
   /** 頁面層級統計摘要 */
   meta: PageMeta;
+  /** 語意層壓縮結果（Readability 萃取的正文） */
+  compressed?: SemanticData;
+  /** 行為層分析結果（webRequest 網路請求監控） */
+  behavioral?: BehavioralData;
 }
 
 /**

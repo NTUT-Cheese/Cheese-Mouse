@@ -4,9 +4,13 @@
 // ============================================================
 
 import type { ExtensionMessage, PageFeatureReport } from '@/utils/types';
+import { BehavioralAnalyzer } from '@/analyzers/behavioral';
 
 /** 最新的頁面特徵報告快取 (tabId → report) */
 const latestReports = new Map<number, PageFeatureReport>();
+
+/** 行為層分析器（全域單例） */
+const behavioralAnalyzer = new BehavioralAnalyzer();
 
 /**
  * 處理來自 Content Script 的頁面特徵報告
@@ -21,6 +25,29 @@ function handlePageFeatures(report: PageFeatureReport, tabId?: number): void {
     meta: report.meta,
   });
 
+  // 附加行為層資料
+  if (tabId != null) {
+    const behavioralResult = behavioralAnalyzer.getReport(tabId);
+    report.behavioral = behavioralResult.data;
+
+    if (behavioralResult.data.suspiciousEvents.length > 0) {
+      console.warn(
+        '[Cheese Mouse] ⚡ Behavioral alerts:',
+        behavioralResult.data.suspiciousEvents,
+      );
+    }
+
+    console.log('[Cheese Mouse] ⚡ Behavioral layer:', {
+      externalRequests: behavioralResult.data.externalRequests.total,
+      topDomains: Object.entries(behavioralResult.data.externalRequests.byDomain)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([domain, count]) => `${domain}(${count})`),
+      suspiciousEvents: behavioralResult.data.suspiciousEvents.length,
+      took: `${behavioralResult.durationMs}ms`,
+    });
+  }
+
   // 快取最新報告
   if (tabId != null) {
     latestReports.set(tabId, report);
@@ -31,7 +58,7 @@ function handlePageFeatures(report: PageFeatureReport, tabId?: number): void {
     type: 'PAGE_FEATURES',
     payload: report,
   }).catch(() => {
-    // 沒有 sidebar 監聽時會報錯，直接忽略
+    // 沒有 sidebar 監聯時會報錯，直接忽略
   });
 
   // 列出高風險行為標籤
@@ -48,12 +75,15 @@ function handlePageFeatures(report: PageFeatureReport, tabId?: number): void {
     }
   }
 
-  // TODO: 第二階段 — 送往本地特徵快取比對
-  // TODO: 第三階段 — 未命中時送往 WebLLM 推論
+  // TODO: 送往本地特徵快取比對
+  // TODO: 未命中時送往 WebLLM 推論
 }
 
 export default defineBackground(() => {
   console.log('[Cheese Mouse] Background script loaded:', { id: browser.runtime.id });
+
+  // 啟動行為層分析器（webRequest 監控）
+  behavioralAnalyzer.start();
 
   // 點擊擴充功能圖示 → 切換 sidebar
   browser.browserAction.onClicked.addListener(() => {
@@ -111,6 +141,11 @@ export default defineBackground(() => {
 
   // 監聽 Tab 狀態更新 (如重新載入、網址改變)
   browser.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    // 頁面導航時重置行為層記錄
+    if (changeInfo.status === 'loading') {
+      behavioralAnalyzer.resetTab(tabId);
+    }
+
     // 當頁面載入完成且是 http/https 頁面時，自動觸發掃描
     if (changeInfo.status === 'complete' && tab.url && tab.url.startsWith('http')) {
       console.log('[Cheese Mouse] Tab updated and complete, requesting scan for tab:', tabId);

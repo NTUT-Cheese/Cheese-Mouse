@@ -1,87 +1,97 @@
 # Cheese Mouse 即時惡意內容防護擴充功能 — 實作待辦與架構規劃 (Todo & Roadmap)
 
-本文件由原 `spec.md` 轉化為具體的開發與實作待辦清單，明確劃分已完成架構、當前開發進度與後續進階功能（WebLLM 邊緣 AI 推論、特徵快取、雙軌切換等），方便持續追蹤與協作。
+本文件具體記錄 Cheese Mouse 的開發與進階功能藍圖，核心採用 **四層多模態分析架構 (Visual, Semantic, DOM, Behavioral)**，配合輕量化邊緣 AI 與快取機制，達到精準且高透明度的網頁防護。
 
 ---
 
-## 階段一：DOM 解析與結構化特徵萃取 (Client-Side & Extraction)
-負責在網頁前端即時解析 DOM 樹、提取表單交互、腳本與外部連結等結構化特徵，輕量化後送至後台與側邊欄。
+## 階段一：四層多模態特徵萃取與壓縮引擎 (Multi-Layer Analysis Engine)
+負責在瀏覽器端對網頁內容進行多維度分析，輕量化/壓縮後提供給 UI 展示與後續 AI 引擎推論。
 
-- [x] **DOM 監聽與動態渲染支援 (`content.ts`)**
-  - [x] 實作 MutationObserver 即時監控頁面 DOM 變動
-  - [x] 優化動態載入頁面（如 Threads、SPA 網頁）偵測機制：移除長冷卻時間，設定 Debounce 為 300ms、變動門檻值降為 1
-  - [x] 頁面導航與分頁切換即時同步：監聽分頁切換與載入完成，確保 Sidebar 即時呈現當前分頁狀態
-- [x] **結構化特徵萃取引擎 (`extractor.ts`)**
-  - [x] 密碼與表單監控：偵測 `<input type="password">`、跨域或導外提交之 `<form>` 元素
-  - [x] 腳本安全分析：偵測未知內嵌腳本、動態載入之外部 `<script>` 來源與數量計數
-  - [x] 導外連結分析：過濾重複連結（不重複計算 URL 與網域統計）
-  - [x] 具體目標 URL 列表：為每個行為標籤（Behavior Tag）建立關聯的具體目標 URL 列表，供 UI 展示與驗證
+- [x] **共用介面與架構規範 (`analyzers/types.ts`)**
+  - [x] 制定統一的 `LayerResult<T>` 與各層專屬資料型別
+- [x] **語意層分析與 DOM 壓縮 (`analyzers/semantic/index.ts`)**
+  - [x] 整合 `@mozilla/readability` 進行 DOM 克隆與文章核心正文萃取
+  - [x] 實作高壓縮比（大幅過濾廣告、導覽列與雜音 DOM，壓縮率達 90%+）
+  - [x] 非文章頁面自動降級（Title + Meta Description 備援方案）
+- [x] **DOM 結構分析層 (`analyzers/dom/index.ts` & `utils/extractor.ts`)**
+  - [x] 密碼與敏感表單監控 (`<input type="password">`、隱藏 iframe、跨域提交表單)
+  - [x] 腳本安全分析與內嵌 inline 腳本長度統計
+  - [x] 具體目標 URL 列表生成與高風險行為標籤 (`behaviorTags`) 標註
+- [ ] **行為層分析與動態攔截 (Dual-Core Behavioral Analysis)**
+  - [x] **底層網路監控 (`background` - `webRequest`)**：統計外部請求頻率、Top 網域排行與已知惡意網域比對
+  - [ ] **MAIN World 執行環境注入 (`entrypoints/injected.ts`)**：於 `document_start` 將 Hook 核心注入網頁主執行環境
+  - [ ] **JS Listener 監控與替換 (`EventTarget.prototype.addEventListener`)**：
+    - [ ] 攔截並記錄 `keydown`, `keyup`, `input`, `paste`, `submit` 等高風險事件註冊來源 (`Stack Trace` 追蹤)
+    - [ ] 實作 Listener 替換/過濾機制，阻止惡意腳本攔截表單提交或偷取密碼欄位按鍵事件
+    - [ ] 攔截反偵錯與防干擾事件（如 `contextmenu`, `copy`, `beforeunload`）
+  - [ ] **敏感 API 與資料外洩監控 (API Monkey Patching)**：
+    - [ ] Hook `fetch`, `XMLHttpRequest`, `sendBeacon`：即時掃描 Request Body 是否含有頁面敏感輸入內容（密碼/卡號偷渡檢測）
+    - [ ] Hook `document.cookie` 與 `localStorage`：偵測第三方腳本竊取 Session Token 的嘗試
+    - [ ] Hook `eval` 與 `Function`：捕獲並分析混淆腳本的動態解包（Unpacking） payload
+  - [ ] **跨 World 雙向通訊機制**：將 MAIN World 捕獲的 JS 攔截/替換報告即時透傳給 Content Script 與 Sidebar 展示
+- [ ] **視覺層分析引擎 (`analyzers/visual/index.ts`)**
+  - [x] 建立分析器骨架與 UI 佔位介面
+  - [ ] 實作網頁視覺截圖 (`browser.tabs.captureVisibleTab`)
+  - [ ] 整合輕量化 AI 或特徵比對進行釣魚網站外觀仿冒偵測（如假冒登入介面）
 
 ---
 
-## 階段二：風險評分模型與高透明度 UI/UX (`App.vue` & Score Logic)
-提供清晰透明的評分依據，避免一般網站（如 Wikipedia、FedoraProject、Threads）因大量普通連結或腳本被誤判為高風險。
+## 階段二：高透明度 UI/UX 與即時監控 (`App.vue` & Score Logic)
+提供清晰透明的評分與分層分析報告，避免對一般正常網站造成誤判與騷擾。
 
-- [ ] **風險評分演算法與權重優化 (待細緻化，避免規則過度粗暴)**
-  - [ ] 採用「單一元素最高風險分數 (Element-based max score)」或多維度語境綜合計分，避免單純規則疊加造成分數膨脹或粗暴誤判
-  - [ ] 校準一般行為權重：純外部連結 (`external-link`) 與普通外部腳本 (`external-script`) 基礎風險評估
-  - [ ] 危險特徵細緻化判定：區分真實惡意行為（如跨域偷取憑證、釣魚表單）與一般合法框架或動態載入行為，提升模型準確度
-- [x] **側邊欄 (Sidebar) 互動與透明化展示**
-  - [x] 當前安全評分指示器（動態顯示 0~100 分及低/中/高風險色彩展示）
-  - [x] 行為標籤分數徽章：於每個行為標籤標註實際對應分數（如 `+10`, `+6`, `+0`）
-  - [x] 展開具體連結詳情：點擊或檢視標籤時，具體列出其對應的真實 URL 或腳本來源列表
-  - [x] 按風險等級篩選：支援顯示全部、高風險、中風險或低風險的特徵項目
+- [x] **側邊欄 (Sidebar) 互動與分層報告展示**
+  - [x] 即時顯示安全分數指示器（低/中/高風險色彩與動態指針）
+  - [x] **多層分析儀表板**：直觀展示語意層正文與壓縮率、行為層外部請求次數與可疑警告
+  - [x] 展開具體敏感元素與來源 URL 詳情列表
+  - [x] 支援依風險等級與行為標籤篩選特徵
+- [ ] **風險評分演算法與權重校準**
+  - [ ] 採用「單一元素最高風險分數 (Element-based max score)」或多維度綜合推論，避免純規則累加導致分數失真
+  - [ ] 校準一般行為權重（如普通 SPA 網站的大量合規外部請求與腳本載入）
 
 ---
 
-## 階段三：本地特徵快取資料庫 (Local Cache Lookup & Storage)
-為避免重複特徵萃取與重複執行 AI 推論，建立本地端快速查表機制。
+## 階段三：本地特徵快取與指紋資料庫 (Local Cache Lookup & Storage)
+為避免對相同或類似頁面重複萃取與重複執行 AI 推論，建立快速查表與自訂白名單機制。
 
-- [ ] **特徵與指紋快取結構設計 (3NF Schema)**
-  - [ ] 規劃 Chrome Storage / IndexedDB 快取表架構（以網域或結構化特徵 Hash 作為 Key）
-  - [ ] 實作快取過期與自動清除機制 (TTL 策略)
-- [ ] **快取比對與即時回應 (Hit-Cache Flow)**
-  - [ ] 若特徵命中已知安全指紋或已知威脅特徵，直接回傳信用評分，略過 AI 推論
-- [ ] **使用自訂白名單 / 黑名單介面**
-  - [ ] 允許使用者在側邊欄對特定網域標註「信任 (Whitelist)」或「封鎖 (Blacklist)」
+- [ ] **特徵快取架構設計 (3NF Schema & TTL)**
+  - [ ] 規劃 Chrome Storage / IndexedDB 快取表架構（以網域或正文 Hash 作為 Key）
+  - [ ] 實作快取過期與自動清除機制
+- [ ] **快取比對與自訂名單介面 (Hit-Cache Flow)**
+  - [ ] 若命中已知安全指紋或已知黑名單特徵，直接回傳評分並略過 LLM 推論
+  - [ ] 允許使用者於 Sidebar 一鍵標註特定網域為「信任 (Whitelist)」或「封鎖 (Blacklist)」
 
 ---
 
 ## 階段四：WebLLM 輕量化邊緣 AI 推論核心 (Edge AI Inference)
-於瀏覽器本地端利用 WebGPU 執行輕量化模型（0.5B - 1B 參數），進行深層次 DOM 結構語意與潛在惡意行為推理。
+於瀏覽器本地端利用 WebGPU 運行輕量化大語言模型（如 0.5B - 1B 參數），進行深層次綜合防禦與語意理解。
 
 - [ ] **WebLLM 本地運行環境整合**
-  - [ ] 在擴充功能後台 (Offscreen Service / Worker) 載入 WebLLM (例如 Qwen2.5-0.5B-Instruct 或 Llama-3 輕量量化版)
-  - [ ] 偵測 WebGPU 可用性與 Graceful Fallback (無硬體加速時的降級或提示機制)
-- [ ] **結構化 Prompt 與標準輸出格式設計**
-  - [ ] 設計 Prompt template，把壓縮後的 DOM 特徵轉為精簡 Prompt
-  - [ ] 規範模型回傳嚴格 JSON 報告格式：
-    - [ ] `Credit Score` (信用評分 0-100)
-    - [ ] `Threat Category` (威脅分類：釣魚表單、XSS、惡意重導向、挖礦腳本等)
-    - [ ] `Confidence` (置信度 0.0-1.0)
-- [ ] **推論非阻塞與效能控制**
-  - [ ] 確保後台 AI 運算不阻塞頁面主執行緒與使用者介面互動
+  - [ ] 在後台 Offscreen Document / Background 中載入 WebLLM (如 Qwen2.5-0.5B-Instruct 或 Llama-3 輕量量化版)
+  - [ ] WebGPU 硬體加速偵測與自動降級策略 (Graceful Fallback)
+- [ ] **多層特徵提示工程 (Multi-Layer Prompting)**
+  - [ ] 設計 Prompt 模板，整合語意層正文、DOM 敏感標籤與行為層網路特徵
+  - [ ] 規範模型回傳嚴格 JSON 報告 (`Credit Score`, `Threat Category`, `Confidence`)
+- [ ] **效能與記憶體控制**
+  - [ ] 非阻塞非同步推論，確保不影響主頁面流暢度
 
 ---
 
 ## 階段五：雙軌切換路由器與深度防禦 (Dual-Track Router & Enterprise/Cloud AI)
-處理本地輕量化模型置信度不足或遭遇複雜混淆代碼時的動態分流機制。
+針對本地模型置信度不足或面臨高難度混淆攻擊時的動態分流機制。
 
 - [ ] **雙軌切換路由器 (Router Logic) 實作**
-  - [ ] 設定動態路由判斷規則：當 `Confidence < Threshold` 或檢測到深度混淆特徵時觸發分流
-- [ ] **企業私有雲與本地端大模型串接**
-  - [ ] 支援介接內部網段 Ollama 或私有 AI 伺服器（滿足企業端資料不過公網的安全規範）
-- [ ] **高階雲端 AI 引擎串接與金鑰管理**
-  - [ ] 提供付費或高階模式的 API Key 介接設定（加密儲存於 Extension Chrome Storage）
+  - [ ] 當本地 AI `Confidence < Threshold` 或偵測到高階混淆特徵時觸發分流
+- [ ] **企業私有雲 / 本地大模型串接**
+  - [ ] 支援介接內部網段 Ollama 或企業專屬 AI 伺服器（滿足敏感資料不過公網規範）
+- [ ] **高階雲端 AI 引擎 API 串接**
+  - [ ] 提供進階模式 API Key 設定（安全加密儲存於 Extension Storage）
 
 ---
 
-## 階段六：惡意行為即時攔截與預警介面 (Scoring & Blocking UI)
-針對確信高風險的網頁或特定操作提供主動攔截與使用者引導。
+## 階段六：主動攔截與安全預警介面 (Blocking & Audit)
+針對確信為釣魚或高風險行為的網頁提供主動介入。
 
 - [ ] **高風險頁面主動攔截遮罩 (Overlay Alert)**
-  - [ ] 當信用評分低於警戒值（例如 < 50 分），於目標頁面注入即時警告遮罩或阻止敏感表單送出
-- [ ] **審核與放行流程**
-  - [ ] 提供「展開詳細安全報告」與「我瞭解風險，單次放行繼續瀏覽」之操作按鈕
-- [ ] **匯出頁面安全稽核報告**
-  - [ ] 支援一鍵匯出當前頁面的詳細分析報告（JSON 或 PDF）
+  - [ ] 當信用評分低於警戒門檻，於目標頁面注入即時警告遮罩並阻止敏感表單送出
+- [ ] **審核放行與稽核報告匯出**
+  - [ ] 提供「我瞭解風險，單次放行」選項，並支援一鍵匯出該網頁的多層次安全分析報告 (JSON / PDF)

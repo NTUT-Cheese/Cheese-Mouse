@@ -11,6 +11,7 @@ if (!existsSync(firefoxProfilePath)) {
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: {
+    permissions: ['webRequest'],
     sidebar_action: {
       default_panel: "sidebar.html",
       default_title: "Cheese Mouse",
@@ -35,4 +36,10 @@ export default defineConfig({
     firefoxProfile: firefoxProfilePath,
     keepProfileChanges: true,
   },
+  vite: () => ({
+    server: {
+      port: 3000,
+      strictPort: true,
+    },
+  }),
 });

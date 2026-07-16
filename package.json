@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "wxt -b firefox",
+    "dev:clean": "npm run clean && wxt -b firefox",
+    "clean": "wxt clean && rm -rf .output .wxt/firefox-profile",
     "dev:chrome": "wxt",
     "build": "wxt build -b firefox",
     "build:chrome": "wxt build",
@@ -15,6 +17,7 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "@mozilla/readability": "^0.6.0",
     "vue": "^3.5.29"
   },
   "devDependencies": {

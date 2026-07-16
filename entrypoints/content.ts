@@ -4,6 +4,7 @@
 // ============================================================
 
 import { extractPageFeatures, extractFeaturesFromSubtree } from '@/utils/extractor';
+import { analyzeSemanticLayer } from '@/analyzers/semantic';
 import type { PageFeaturesMessage, ExtensionMessage } from '@/utils/types';
 
 /** 防抖計時器 ID */
@@ -20,6 +21,10 @@ const MUTATION_THRESHOLD = 1;
  */
 function performFullScan(): void {
   const report = extractPageFeatures();
+
+  // 語意層：使用 Readability 壓縮 DOM 為核心正文
+  const semanticResult = analyzeSemanticLayer();
+  report.compressed = semanticResult.data;
 
   const message: PageFeaturesMessage = {
     type: 'PAGE_FEATURES',
@@ -38,6 +43,20 @@ function performFullScan(): void {
     `password: ${report.meta.hasPasswordField}, ` +
     `credit-card: ${report.meta.hasCreditCardField}`
   );
+
+  // 語意層摘要 log
+  if (semanticResult.success) {
+    const c = semanticResult.data;
+    console.log(
+      `[Cheese Mouse] 📖 Semantic layer: parseable=${c.isParseable}, ` +
+      `title="${c.title || '(none)'}", ` +
+      `text=${c.fullTextLength} chars → ${c.textContent.length} chars, ` +
+      `ratio=${(c.compressionRatio * 100).toFixed(1)}%, ` +
+      `took ${semanticResult.durationMs}ms`
+    );
+  } else {
+    console.warn('[Cheese Mouse] 📖 Semantic layer failed:', semanticResult.error);
+  }
 }
 
 /**

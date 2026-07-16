@@ -104,6 +104,29 @@ const scanTime = computed(() => {
   return new Date(report.value.timestamp).toLocaleTimeString();
 });
 
+// 語意層壓縮率百分比
+const compressionPercent = computed(() => {
+  if (!report.value?.compressed) return null;
+  const ratio = report.value.compressed.compressionRatio;
+  return ((1 - ratio) * 100).toFixed(1);
+});
+
+// 行為層外部請求 top 域名
+const topExternalDomains = computed(() => {
+  if (!report.value?.behavioral) return [];
+  const byDomain = report.value.behavioral.externalRequests.byDomain;
+  return Object.entries(byDomain)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 8)
+    .map(([domain, count]) => ({ domain, count }));
+});
+
+// 行為層可疑事件數
+const suspiciousEventCount = computed(() => {
+  if (!report.value?.behavioral) return 0;
+  return report.value.behavioral.suspiciousEvents.length;
+});
+
 // ----------------------------------------------------------
 // Methods
 // ----------------------------------------------------------
@@ -378,6 +401,93 @@ onMounted(() => {
       <div class="empty-icon">🔍</div>
       <p class="empty-text">尚未掃描此頁面</p>
       <p class="empty-hint">點擊「重新掃描」開始分析</p>
+    </section>
+
+    <!-- Semantic Layer -->
+    <section v-if="report?.compressed" class="layer-section">
+      <h2 class="section-title">
+        <span class="layer-icon">📖</span> 語意層分析
+      </h2>
+      <div class="layer-card">
+        <div class="layer-status" :class="report.compressed.isParseable ? 'status-ok' : 'status-warn'">
+          {{ report.compressed.isParseable ? '✓ 成功解析正文' : '⚠ 非文章型頁面' }}
+        </div>
+        <div v-if="report.compressed.title" class="layer-row">
+          <span class="layer-label">標題</span>
+          <span class="layer-value title-value">{{ report.compressed.title }}</span>
+        </div>
+        <div v-if="report.compressed.byline" class="layer-row">
+          <span class="layer-label">作者</span>
+          <span class="layer-value">{{ report.compressed.byline }}</span>
+        </div>
+        <div v-if="report.compressed.siteName" class="layer-row">
+          <span class="layer-label">網站</span>
+          <span class="layer-value">{{ report.compressed.siteName }}</span>
+        </div>
+        <div class="layer-row">
+          <span class="layer-label">壓縮率</span>
+          <span class="layer-value">
+            <span class="compression-badge">{{ compressionPercent }}%</span>
+            <span class="compression-detail">
+              {{ (report.compressed.originalDomLength / 1024).toFixed(0) }}KB → {{ (report.compressed.textContent.length / 1024).toFixed(1) }}KB
+            </span>
+          </span>
+        </div>
+        <div v-if="report.compressed.lang" class="layer-row">
+          <span class="layer-label">語言</span>
+          <span class="layer-value">{{ report.compressed.lang }}</span>
+        </div>
+        <div v-if="report.compressed.excerpt" class="layer-excerpt">
+          <span class="layer-label">摘要</span>
+          <p class="excerpt-text">{{ report.compressed.excerpt }}</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Behavioral Layer -->
+    <section v-if="report?.behavioral" class="layer-section">
+      <h2 class="section-title">
+        <span class="layer-icon">⚡</span> 行為層分析
+      </h2>
+      <div class="layer-card">
+        <div class="layer-row">
+          <span class="layer-label">外部請求</span>
+          <span class="layer-value">
+            <span class="behavioral-count">{{ report.behavioral.externalRequests.total }}</span> 個
+          </span>
+        </div>
+        <div v-if="suspiciousEventCount > 0" class="layer-status status-danger">
+          ⚠ 偵測到 {{ suspiciousEventCount }} 個可疑行為
+        </div>
+        <!-- Suspicious Events -->
+        <div v-for="(evt, idx) in report.behavioral.suspiciousEvents" :key="idx" class="suspicious-event">
+          <span class="event-type">{{ evt.type }}</span>
+          <span class="event-desc">{{ evt.description }}</span>
+        </div>
+        <!-- Top Domains -->
+        <div v-if="topExternalDomains.length > 0" class="top-domains">
+          <span class="layer-label">外部請求域名</span>
+          <div class="domain-list">
+            <div v-for="d in topExternalDomains" :key="d.domain" class="domain-item">
+              <span class="domain-name">{{ d.domain }}</span>
+              <span class="domain-count">{{ d.count }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Visual Layer (placeholder) -->
+    <section v-if="report" class="layer-section">
+      <h2 class="section-title">
+        <span class="layer-icon">👁️</span> 視覺層分析
+      </h2>
+      <div class="layer-card layer-disabled">
+        <div class="layer-status status-disabled">
+          🔒 尚未啟用 — 需要 AI 引擎
+        </div>
+        <p class="disabled-hint">視覺層將透過截圖比對偵測釣魚網站的外觀仿冒行為，需搭配 AI 模型使用。</p>
+      </div>
     </section>
 
     <!-- Footer -->
@@ -799,5 +909,205 @@ onMounted(() => {
   font-size: 10px;
   color: rgba(255, 255, 255, 0.2);
   letter-spacing: 0.5px;
+}
+
+/* ---- Layer Sections (Multi-layer Analysis) ---- */
+.layer-section {
+  padding: 12px 16px;
+}
+
+.layer-icon {
+  font-size: 14px;
+  margin-right: 4px;
+}
+
+.layer-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.layer-card.layer-disabled {
+  opacity: 0.5;
+}
+
+.layer-status {
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.layer-status.status-ok {
+  background: rgba(46, 213, 115, 0.1);
+  color: #2ed573;
+  border: 1px solid rgba(46, 213, 115, 0.2);
+}
+
+.layer-status.status-warn {
+  background: rgba(255, 165, 2, 0.1);
+  color: #ffa502;
+  border: 1px solid rgba(255, 165, 2, 0.2);
+}
+
+.layer-status.status-danger {
+  background: rgba(255, 71, 87, 0.1);
+  color: #ff4757;
+  border: 1px solid rgba(255, 71, 87, 0.2);
+}
+
+.layer-status.status-disabled {
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.layer-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.layer-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.layer-value {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+  text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title-value {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compression-badge {
+  background: linear-gradient(135deg, rgba(46, 213, 115, 0.15), rgba(46, 213, 115, 0.08));
+  color: #2ed573;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.compression-detail {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.layer-excerpt {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.excerpt-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.5;
+  max-height: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.behavioral-count {
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.suspicious-event {
+  background: rgba(255, 71, 87, 0.06);
+  border: 1px solid rgba(255, 71, 87, 0.15);
+  border-radius: 6px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.event-type {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #ff4757;
+  letter-spacing: 0.5px;
+}
+
+.event-desc {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.4;
+}
+
+.top-domains {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.domain-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.domain-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 4px;
+}
+
+.domain-name {
+  font-size: 10px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: rgba(255, 255, 255, 0.55);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.domain-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+
+.disabled-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.3);
+  line-height: 1.5;
 }
 </style>
